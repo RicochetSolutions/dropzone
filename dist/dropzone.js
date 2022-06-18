@@ -1665,8 +1665,10 @@ var $a601ff30f483e917$export$2e2bcd8739ae039 = /*#__PURE__*/ function(Emitter1) 
                         var resizeMimeType = _this.options.resizeMimeType;
                         if (resizeMimeType == null) resizeMimeType = file.type;
                         var resizedDataURL = canvas.toDataURL(resizeMimeType, _this.options.resizeQuality);
-                        if (resizeMimeType === "image/jpeg" || resizeMimeType === "image/jpg") // Now add the original EXIF information
-                        resizedDataURL = $a601ff30f483e917$var$restoreExif(file.dataURL, resizedDataURL);
+                        if (EXIF.getTag(_this, "Orientation") === 1) {
+                            if (resizeMimeType === "image/jpeg" || resizeMimeType === "image/jpg") // Now add the original EXIF information
+                            resizedDataURL = $a601ff30f483e917$var$ExifRestore.restore(file.dataURL, resizedDataURL);
+                        }
                         return callback(Dropzone.dataURItoBlob(resizedDataURL));
                     }
                 });
@@ -1675,7 +1677,6 @@ var $a601ff30f483e917$export$2e2bcd8739ae039 = /*#__PURE__*/ function(Emitter1) 
         {
             key: "createThumbnail",
             value: function createThumbnail(file, width, height, resizeMethod, fixOrientation, callback) {
-                var ignoreExif = arguments.length > 6 && arguments[6] !== void 0 ? arguments[6] : false;
                 var _this = this;
                 var fileReader = new FileReader();
                 fileReader.onload = function() {
@@ -1685,7 +1686,7 @@ var $a601ff30f483e917$export$2e2bcd8739ae039 = /*#__PURE__*/ function(Emitter1) 
                         if (callback != null) callback(fileReader.result);
                         return;
                     }
-                    _this.createThumbnailFromUrl(file, width, height, resizeMethod, fixOrientation, callback, ignoreExif);
+                    _this.createThumbnailFromUrl(file, width, height, resizeMethod, fixOrientation, callback);
                 };
                 fileReader.readAsDataURL(file);
             }
@@ -1719,7 +1720,6 @@ var $a601ff30f483e917$export$2e2bcd8739ae039 = /*#__PURE__*/ function(Emitter1) 
         {
             key: "createThumbnailFromUrl",
             value: function createThumbnailFromUrl(file, width, height, resizeMethod, fixOrientation, callback1, crossOrigin) {
-                var ignoreExif = arguments.length > 7 && arguments[7] !== void 0 ? arguments[7] : false;
                 var _this = this;
                 // Not using `new Image` here because of a bug in latest Chrome versions.
                 // See https://github.com/enyo/dropzone/pull/226
@@ -1794,9 +1794,7 @@ var $a601ff30f483e917$export$2e2bcd8739ae039 = /*#__PURE__*/ function(Emitter1) 
                     });
                 };
                 if (callback1 != null) img.onerror = callback1;
-                var dataURL = file.dataURL;
-                if (ignoreExif) dataURL = $a601ff30f483e917$var$removeExif(dataURL);
-                return img.src = dataURL;
+                return img.src = file.dataURL;
             }
         },
         {
@@ -2848,66 +2846,157 @@ var $a601ff30f483e917$var$drawImageIOSFix = function drawImageIOSFix(ctx, img, s
     var vertSquashRatio = $a601ff30f483e917$var$detectVerticalSquash(img);
     return ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh / vertSquashRatio);
 };
-// Inspired by MinifyJpeg
+// Based on MinifyJpeg
 // Source: http://www.perry.cz/files/ExifRestorer.js
 // http://elicon.blog57.fc2.com/blog-entry-206.html
-function $a601ff30f483e917$var$removeExif(origFileBase64) {
-    var marker = "data:image/jpeg;base64,";
-    if (!origFileBase64.startsWith(marker)) return origFileBase64;
-    var origFile = window.atob(origFileBase64.slice(marker.length));
-    if (!origFile.startsWith("\xff\xd8\xff")) return origFileBase64;
-    // loop through the JPEG file segments and copy all but Exif segments into the filtered file.
-    var head = 0;
-    var filteredFile = "";
-    while(head < origFile.length){
-        if (origFile.slice(head, head + 2) == "\xff\xda") {
-            // this is the start of the image data, we don't expect exif data after that.
-            filteredFile += origFile.slice(head);
-            break;
-        } else if (origFile.slice(head, head + 2) == "\xff\xd8") {
-            // this is the global start marker.
-            filteredFile += origFile.slice(head, head + 2);
-            head += 2;
-        } else {
-            // we have a segment of variable size.
-            var length = origFile.charCodeAt(head + 2) * 256 + origFile.charCodeAt(head + 3);
-            var endPoint = head + length + 2;
-            var segment = origFile.slice(head, endPoint);
-            if (!segment.startsWith("\xff\xe1")) filteredFile += segment;
-            head = endPoint;
-        }
+var $a601ff30f483e917$var$ExifRestore = /*#__PURE__*/ function() {
+    "use strict";
+    function ExifRestore() {
+        (0, ($parcel$interopDefault($6mU8w$swchelperslib_class_call_checkjs)))(this, ExifRestore);
     }
-    return marker + window.btoa(filteredFile);
-}
-function $a601ff30f483e917$var$restoreExif(origFileBase64, resizedFileBase64) {
-    var marker = "data:image/jpeg;base64,";
-    if (!(origFileBase64.startsWith(marker) && resizedFileBase64.startsWith(marker))) return resizedFileBase64;
-    var origFile = window.atob(origFileBase64.slice(marker.length));
-    if (!origFile.startsWith("\xff\xd8\xff")) return resizedFileBase64;
-    // Go through the JPEG file segments one by one and collect any Exif segments we find.
-    var head = 0;
-    var exifData = "";
-    while(head < origFile.length){
-        if (origFile.slice(head, head + 2) == "\xff\xda") break;
-        else if (origFile.slice(head, head + 2) == "\xff\xd8") // this is the global start marker.
-        head += 2;
-        else {
-            // we have a segment of variable size.
-            var length = origFile.charCodeAt(head + 2) * 256 + origFile.charCodeAt(head + 3);
-            var endPoint = head + length + 2;
-            var segment = origFile.slice(head, endPoint);
-            if (segment.startsWith("\xff\xe1")) exifData += segment;
-            head = endPoint;
+    (0, ($parcel$interopDefault($6mU8w$swchelperslib_create_classjs)))(ExifRestore, null, [
+        {
+            key: "initClass",
+            value: function initClass() {
+                this.KEY_STR = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
+            }
+        },
+        {
+            key: "encode64",
+            value: function encode64(input) {
+                var output = "";
+                var chr1 = undefined;
+                var chr2 = undefined;
+                var chr3 = "";
+                var enc1 = undefined;
+                var enc2 = undefined;
+                var enc3 = undefined;
+                var enc4 = "";
+                var i = 0;
+                while(true){
+                    chr1 = input[i++];
+                    chr2 = input[i++];
+                    chr3 = input[i++];
+                    enc1 = chr1 >> 2;
+                    enc2 = (chr1 & 3) << 4 | chr2 >> 4;
+                    enc3 = (chr2 & 15) << 2 | chr3 >> 6;
+                    enc4 = chr3 & 63;
+                    if (isNaN(chr2)) enc3 = enc4 = 64;
+                    else if (isNaN(chr3)) enc4 = 64;
+                    output = output + this.KEY_STR.charAt(enc1) + this.KEY_STR.charAt(enc2) + this.KEY_STR.charAt(enc3) + this.KEY_STR.charAt(enc4);
+                    chr1 = chr2 = chr3 = "";
+                    enc1 = enc2 = enc3 = enc4 = "";
+                    if (!(i < input.length)) break;
+                }
+                return output;
+            }
+        },
+        {
+            key: "restore",
+            value: function restore(origFileBase64, resizedFileBase64) {
+                if (!origFileBase64.match("data:image/jpeg;base64,")) return resizedFileBase64;
+                var rawImage = this.decode64(origFileBase64.replace("data:image/jpeg;base64,", ""));
+                var segments = this.slice2Segments(rawImage);
+                var image = this.exifManipulation(resizedFileBase64, segments);
+                return "data:image/jpeg;base64,".concat(this.encode64(image));
+            }
+        },
+        {
+            key: "exifManipulation",
+            value: function exifManipulation(resizedFileBase64, segments) {
+                var exifArray = this.getExifArray(segments);
+                var newImageArray = this.insertExif(resizedFileBase64, exifArray);
+                var aBuffer = new Uint8Array(newImageArray);
+                return aBuffer;
+            }
+        },
+        {
+            key: "getExifArray",
+            value: function getExifArray(segments) {
+                var seg = undefined;
+                var x = 0;
+                while(x < segments.length){
+                    seg = segments[x];
+                    if (seg[0] === 255 & seg[1] === 225) return seg;
+                    x++;
+                }
+                return [];
+            }
+        },
+        {
+            key: "insertExif",
+            value: function insertExif(resizedFileBase64, exifArray) {
+                var imageData = resizedFileBase64.replace("data:image/jpeg;base64,", "");
+                var buf = this.decode64(imageData);
+                var separatePoint = buf.indexOf(255, 3);
+                var mae = buf.slice(0, separatePoint);
+                var ato = buf.slice(separatePoint);
+                var array = mae;
+                array = array.concat(exifArray);
+                array = array.concat(ato);
+                return array;
+            }
+        },
+        {
+            key: "slice2Segments",
+            value: function slice2Segments(rawImageArray) {
+                var head = 0;
+                var segments = [];
+                while(true){
+                    var length;
+                    if (rawImageArray[head] === 255 & rawImageArray[head + 1] === 218) break;
+                    if (rawImageArray[head] === 255 & rawImageArray[head + 1] === 216) head += 2;
+                    else {
+                        length = rawImageArray[head + 2] * 256 + rawImageArray[head + 3];
+                        var endPoint = head + length + 2;
+                        var seg = rawImageArray.slice(head, endPoint);
+                        segments.push(seg);
+                        head = endPoint;
+                    }
+                    if (head > rawImageArray.length) break;
+                }
+                return segments;
+            }
+        },
+        {
+            key: "decode64",
+            value: function decode64(input) {
+                var output = "";
+                var chr1 = undefined;
+                var chr2 = undefined;
+                var chr3 = "";
+                var enc1 = undefined;
+                var enc2 = undefined;
+                var enc3 = undefined;
+                var enc4 = "";
+                var i = 0;
+                var buf = [];
+                // remove all characters that are not A-Z, a-z, 0-9, +, /, or =
+                var base64test = /[^A-Za-z0-9\+\/\=]/g;
+                if (base64test.exec(input)) console.warn("There were invalid base64 characters in the input text.\nValid base64 characters are A-Z, a-z, 0-9, '+', '/',and '='\nExpect errors in decoding.");
+                input = input.replace(/[^A-Za-z0-9\+\/\=]/g, "");
+                while(true){
+                    enc1 = this.KEY_STR.indexOf(input.charAt(i++));
+                    enc2 = this.KEY_STR.indexOf(input.charAt(i++));
+                    enc3 = this.KEY_STR.indexOf(input.charAt(i++));
+                    enc4 = this.KEY_STR.indexOf(input.charAt(i++));
+                    chr1 = enc1 << 2 | enc2 >> 4;
+                    chr2 = (enc2 & 15) << 4 | enc3 >> 2;
+                    chr3 = (enc3 & 3) << 6 | enc4;
+                    buf.push(chr1);
+                    if (enc3 !== 64) buf.push(chr2);
+                    if (enc4 !== 64) buf.push(chr3);
+                    chr1 = chr2 = chr3 = "";
+                    enc1 = enc2 = enc3 = enc4 = "";
+                    if (!(i < input.length)) break;
+                }
+                return buf;
+            }
         }
-    }
-    if (exifData == "") return resizedFileBase64;
-    var resizedFile = window.atob(resizedFileBase64.slice(marker.length));
-    if (!resizedFile.startsWith("\xff\xd8\xff")) return resizedFileBase64;
-    // The first file segment is always header information so insert the Exif data as second segment.
-    var splitPoint = 4 + resizedFile.charCodeAt(4) * 256 + resizedFile.charCodeAt(5);
-    resizedFile = resizedFile.slice(0, splitPoint) + exifData + resizedFile.slice(splitPoint);
-    return marker + window.btoa(resizedFile);
-}
+    ]);
+    return ExifRestore;
+}();
+$a601ff30f483e917$var$ExifRestore.initClass();
 /*
  * contentloaded.js
  *
